@@ -1,0 +1,292 @@
+---
+title: "Uvod v statistično modeliranje po bayesovsko"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  prettydoc::html_pretty:
+    highlight: github
+    theme: architect
+    toc: yes
+   # toc_float: yes
+---
+
+**Cilji učne enote:**
+
+* Spoznati statistično modeliranje.
+* Spoznati bayesovski pristop k modeliranju in osnovne pojme.
+* Spoznati razliko med bayesovskim in klasičnim (max. lik.) pristopom.
+
+# Bistvo statističnega modeliranja - podatki in model
+
+Glavna naloga uporabne statistike je sklepanje iz podatkov.
+
+Za primer vzemimo podatke o uspešnosti prostih metov košarkarja (1 = zadel, 0 = zgrešil):
+
+```{r}
+y <- c(0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1)
+print(y)
+cat(sprintf("The player made %d out of %d shots.\n", sum(y), length(y)))
+```
+V tem vzorcu njegove uspešnosti je košarkar zadel 8 in zgrešil 4 mete.
+
+Recimo, da želimo sklepati o košarkarjevi sposobnosti, da zadane prosti met. 
+
+### Podatki so le (včasih zelo umazano) okno, skozi katero opazujemo proces, ki nas zanima
+Najpomembnejša stvar, ki jo moramo razumeti in ponotranjiti pri statističnemu razmišljanju je, da se vsa pomembna statisitčna vprašanja nanašajo na lastnosti procesa, ki je generiral podatke, ne pa na podatke same. Čeprav je košarkar zadel dve tretjini vseh metov, ne pomeni, da je njegova uspešnost pri izvajanju prostih metov dve tretjini.
+
+Ker o procesu sklepamo le na podlagi končnega vzorca, je v tovrstnih ocenah vedno določena mera negotovosti in ravno v tem je glavni namen statistike - ovrednotiti kolikšna je ta negotovost!
+
+Seveda pa je res, da z večanjem števila vzorcev negotovost načeloma pada (če gre za smiseln vzorec iz procesa, ki ga modeliramo). Statistika nam omogoča, da ocenimo, kdaj lahko z zaželjeno gotovostjo sprejmemo odločitev, ki nas zanima.
+
+
+### Ni modeliranja brez modela
+
+Pri karkšnemkoli modeliranju moramo najprej izbrati model za proces, ki ga modeliramo, tudi če je ta odločitev pogosto skrita v paketu ali algoritmu, ki ga uporabljamo, ali pa je model tako zapleten, da je pravzaprav težko opredeliti, kakšna je bila ta odločitev (npr. globoke nevronske mreže ali metoda Random Forest).
+
+Na model lahko gledamo kot na hipotezo, kako so nastali podatki. Hipoteza je lahko izjemno kompleksna (npr., da se v ozadju procesa skriva en kup latentnih lastnosti, ki so z nevronsko mrežo povezani z izidom posameznega meta) ali izjemno preprosta (npr., da je uspešnost košarkarja dve tretjini - v tem primeru celo tako preprosta, da se nimamo več kaj naučiti iz podatkov in modeliranje ni potrebno).
+
+Izbira hipoteze (ki je še vedno lahko zelo splošna, da pravzaprav govorimo o družini hipotez) je nujna, ker ne obstaja univerzalna definicija, kaj so vsi možni modeli. Z izbiro modela sami določimo, kaj je za nas družina vseh možnih modelov.
+
+Seveda pa je izbira modela vezana le na trenutno analizo in si kasneje lahko tudi premislimo. To je pravzaprav tipičen iterativni proces statističnega modeliranja, kjer običajno začnemo s preprostimi modeli in jih sproti nadgrajujemo, ko ugotovimo, kjer pomanjkljivo opišejo proces, ki ga skušamo razumeti.
+
+### Parametrični statistični modeli
+
+Najbolj tipičen pristop k določanju modela je, da izberemo . Npr., pri preprosti linearni regresiji . Relativno preprosta funkcijska zveza nam poenostavi računski del sklepanja iz modela, parametri pa še vedno nudijo dovolj ekspresivnosti, da se iz podatkov lahko kaj naučimo.
+
+Ta pristop ima tudi svoje ime - parametrično modeliranje, s čimer ga ločimo od dveh nekoliko drugačnih pristopov: delno-parametričnega (neskončno mnogo parametrov, a nas jih zanima le končno; npr. Gaussovi procesi) in neparametričnega (števno mnogo parametrov, npr. metoda najbližjih sosedov).
+
+Kar smo povedali do sedaj, drži prav v vseh primerih sklepanja iz podatkov! Pa naj si gre za klasično statisitko, Bayesovo statisitko, strojno učenje, globoko učenje, ipd...
+
+### Kaj bi bila smiselna (prva) izbira modela za mete našega košarkarja?
+
+Najbolj preprost model še smiseln, ki ga lahko izberemo za mete našega košarkarja je, da košarkar zadane koš z neko verjetnostjo $\theta$, ki je vedno enaka za vse mete. Torej, njegova sposobnost se ne spreminja skozi čas in meti so, če bi poznali $\theta$, neodvisni med seboj.
+
+Imejmo v mislih, da namen statističnega modela ni natančno pojasniti, kako delujejo procesi v ozadju, temveč le ponuditi statistično interpretacijo procesa, ki generira podatke. Kot je rekel George E. P. Box:
+
+> *Now it would be very remarkable if any system existing in the real world could be exactly represented by any simple model. However, cunningly chosen parsimonious models often do provide remarkably useful approximations. For example, the law PV = RT relating pressure P, volume V and temperature T of an "ideal" gas via a constant R is not exactly true for any real gas, but it frequently provides a useful approximation and furthermore its structure is informative since it springs from a physical view of the behavior of gas molecules. For such a model there is no need to ask the question "Is the model true?". If "truth" is to be the "whole truth" the answer must be "No". The only question of interest is "Is the model illuminating and useful?".*
+
+oziroma, kot ga veliko pogosteje parafraziramo:
+
+
+> *All models are wrong, but some are useful.*
+
+
+__Vprašanje: Je naša izbira modela smiselna? Imamo kakšen alternativen predlog?__
+
+
+### Verjetnost kot jezik za opisovanje modelov
+
+Večina od nas je v večini primerov le uporabnik statističnih modelov, ki jih je za nas pripravil nekdo drug. Torej, v večini primerov je na nas le, da pripravimo podatke, izberemo algoritem in nastavitve ter interpretiramo rezultate. Za tovrstno delo širše razumevanje verjetnosti oz. delovanja statističnih modelov ni nujno (čeprav je zelo zaželeno).
+
+Ko pa želimo več svobode ali možnost, da sami zgradimo statistični model, se ne moremo izogniti razumevanju verjetnosti in statistike. Še posebej pomembno je razumevanje različnih porazdelitev, ki predstavljajo osnovne gradnike vseh statističnih modelov, ter poznavanje statističnih modelov, ki so polni idej in tipičnih pristopov, ki so se v praksi izkazali za uporabne.
+
+Naš statistični model, ki povezuje košarkarjevo uspešnost (verjetnost zadetega meta) in podatke ($n$ metov, ki so bodisi zadetek 1 bodisi zgrešen met 0; $y_i \in \{0,1\}$), bi formalno lahko zapisali
+
+$$Y_i = y_i|\theta \sim_\text{i.i.d.} Bernoulli(\theta) $$
+oz. z besedami: naši meti so neodvisni (če poznamo $\theta$) in porazdeljeni kot met kovanca z verjetnostjo $\theta$.
+
+Še bolj podroben zapis bi bil (če upoštevamo predpostavko o neodvisnosti in vstavimo porazdelitev slučanje spremenljivke Bernoulli):
+
+$$P(Y_1 = y_1, ... , Y_n = y_n|\theta) = \prod_{i=1}^n P(Y_i = y_i|\theta) = \prod_{i=1}^n \theta^{y_i}(1-\theta)^{1 - y_i}$$
+
+Razumevanje na nivoju prvega formalnega zapisa je nujno, če želimo razumeti probabilistično programiranje in graditi lastne modele. Razumevanje na nivoju drugega zapisa pa je potrebno le, če želimo izpeljevati tudi bolj učinkovite računske algoritme za lastne modele ali matematično izpeljavo lastnosti teh modelov, kar pa nas velika večina nikoli ne bo počela.
+
+Funkciji $L(\theta; y) = p(y|\theta)$, ki povezuje podatke in parametre modela, pravimo tudi verjetje (likelihood), model, ali opis procesa, ki generira podatke. Čeprav izvira iz porazdelitve podatkov, ne gre za porazdelitev, če nanjo gledamo kot na funkcijo parametrov modela.
+
+
+# Bayesovski pogled na podatke, model in parametre
+
+Kot smo ugotovili do sedaj, je naša prva naloga pri modeliranju, da (eksplicitno ali implicitno) opredelimo model, ki opisuje, kako so podatki nastali. Bolj formalno, definiramo $p(y|\theta)$. Do sedaj smo spoznali le izjemno preprost model z enim parametrom in vektorjem $y$ dolžine $n$.
+
+Največja razlika med različnimi vejami statistike in strojnega učenja se pojavi v tem trenutku - kako sklepamo iz podatkov in kako obravnavamo podatke in parametre.
+
+### Maksimiziranje verjetja kot najbolj običajna alternativa 
+
+Preden si pogledamo bayesovski pristop, omenimo pristop, ki je še nekoliko lažji - učenje z maksimizacijo verjetja, ki skupaj z bayesovskim predstavlja veliko večino pristopov v statistiki in strojnem učenju: Ideja pristopa je izjemno preprosta - poiščemo vrednosti parametrov $\theta$, ki maksimizirajo vrednost funkcije $L(\theta; y) = p(y|\theta)$. Torej, gre za preprosto optimizacijo, ki nam da točkovno rešitev. Seveda pa v praksi naletimo na kup težav, ki pa povezane s samo optimizacijo in ne z osnovno idejo pristopa.
+
+Predpostavka, ki se skriva za tem pristopom je, da so parametri konstante (sicer neznane, a konstante), podatki pa so realizacija slučajnega procesa. Prednost takega pristopa je, da je učenje optimizacija. Slabost pa, da ne moremo postaviti verjetnostnih vprašanj o parametrih, npr., kolikšna je verjetnost, da je ta košarkar v izvajanju prostih metov boljši od 80%. Ravno zaradi slednjega prihaja do največ nesporazumov oz. napačnih interpretacij rezultatov klasičnih ne-bayesovskih pristopov.
+
+Poglejmo si maksimiziranje verjetja v praksi:
+
+```{r,fig.height = 3, fig.width = 5}
+library(ggplot2)
+
+likelihood <- function(theta, y) {
+  prod(theta^y * (1 - theta)^(1-y))
+}
+
+# plot the likelihood function for some theta
+x <- seq(0, 1, 0.01)
+z <- NULL
+for (theta in x) {
+  z <- rbind(z, data.frame(theta = theta, likelihood = likelihood(theta, y)))
+}
+
+ggplot(z, aes(x = theta, y = likelihood)) + geom_point() + geom_line()
+
+```
+
+Približen maksimum je v tem primeru viden že iz grafa, saj imamo opravka z enim samim parametrom. Bolj natančen odgovor pa dobimo z optimizacijo:
+
+```{r,fig.height = 3, fig.width = 5}
+
+# in practice, we typically maximize (minimize) the (minus) log-likelihood, which is equivalent but numerically more stable
+lik_optim <- function(theta, y) {
+  -sum(y * log(theta) + (1 - y) * log(1 - theta))
+}
+
+res <- optim(par = 0.5, lower = 0.01, upper = 0.99, fn = lik_optim, method = "L-BFGS-B", y = y)
+cat(sprintf("Maximum likelihood estimate = %.3f\n", res$par))
+
+```
+
+
+### Bayesovski pristop
+
+Glavna razlika pri bayesovskem pristopu je, da parametre $\theta$ obravnavamo kot slučajne spremenljivke in ne konstante. To ne pomeni, da verjamemo, da so parametri slučajne spremenljivke, temveč se le odločimo, da bomo svoje neznanje oz. negotovost v njihovo pravo vrednost (ki je prav lahko konstanta) predstavili s porazdelitvijo preko vrednosti, ki jih lahko zavzame.
+
+Bayesovsko učenje se prevede na izračun porazdelitve $p(\theta | y)$. Z drugimi besedami, kakšno je naše verjetnostno mnenje o parametrih, ko vidimo podatke. Izračun te porazdelitve je znameniti Bayesov izrek, za katerega zadošča osnovno znanje verjetnosti, preko njega pa poteka celotna Bayesova statistika:
+
+$$ p(\theta|y) = \frac{p(y, \theta)}{p(y)} = \frac{p(y|\theta)p(\theta)}{p(y)} = \frac{p(y|\theta)p(\theta)}{\int p(y|\theta)p(\theta) d\theta} \propto p(y|\theta)p(\theta)$$
+
+Čeprav nas večina v praksi nikoli ne bo izpeljevala tega na roke, se zgornjem matematičnem zapisu se skriva nekaj za prakso izjemno pomembnih ugotovitev:
+
+1. Integral $p(y)$, ki ga moramo izračunati v imenovalcu, za večino statističnih modelov v praksi neizračunljiv. Pri Bayesovi statistiki smo hitro "obsojeni" na uporabo numeričnih metod. O njih bomo več povedali kasneje.
+
+2. Dobra stran pa je, da je vsaka porazdelitev enolično določena z njeno obliko (ker se mora integrirati v 1), zato je za popolno razumevanje porazdelitve dovolj, da jo znamo oceniti do multiplikativne konstante (brez imenovalca) natančno. Torej, da poznamo $p(y|\theta)p(\theta)$.
+
+3. Za prakso so torej pomembne porazdelitve $p(\theta|y)$ (aposteriorna porazdelitev parametrov, kar nas pravzaprav zanima), $p(y|\theta)$ (model ali verjetje, ki ga poznamo že od prej) in $p(\theta)$ (apriorna porazdelitev), ki je nekaj novega!
+
+Apriorna porazdelitev $p(\theta)$ predstavlja naše verjetnostno mnenje o parametrih preden vidimo podatke. To, da ne moremo imeti verjetnostnega mnenja, ko vidimo podatke, če nismo imeli verjetnostnega mnenja, preden smo jih videli, je še razumljivo. Nekoliko manj jasno je, vsaj na prvi pogled, kako takšno mnenje oblikovati. Apriorna porazdelitev je vir največjih prednosti Bayesove statistike, obenem pa tudi največ kritik in sporov, predvsem na to, da v statističnih analizah ni prostora za subjektivno apriorno mnenje, ki ga klasični statistični pristopi (a samo navidez) nimajo.
+
+Bayesova statistika ima na to dva nasprotujoča si odgovora, katerih rezultat sta dve struji bayesove statistike:
+
+* Objektiven bayesovski pristop: Apriorno porazdelitev izberemo na objektiven način (pri čemer obstaja več definicij objektivnosti; ena izmed njih tudi poenoti maksimizacijo verjetja in bayesovske pristope).
+
+* Subjektiven bayesovski pristop: Subjektivnost je neizogibna, zato se s tem ne obremenjujmo, temveč raje poskušamo utemeljiti svojo izbiro modela in apriorne porazdelitve, ki naj bosta oba podvržena kritiki.
+
+Mi bomo zagovarjali slednjega.
+
+### Primer: Sklepanje o pričakovani vrednosti binarne/Bernoulli/binomske slučajne spremenljivke
+
+Sedaj bomo po bayesovsko ocenili negotovost v pričakovano uspešnost našega košarkarja. Podatki $y_i$ so dani in so binarni.
+
+
+####  Model Bernoulli-Beta
+Kot vedno, ko delamo statistično analizo, moramo izbrati model. Izbrali bomo enak model, kot pri naši prejšnji ne-bayesovski analizi:
+
+$$Y_i = y_i|\theta \sim_\text{i.i.d.} Bernoulli(\theta) $$ 
+
+oz. krajše 
+
+$$y_i|\theta \sim_\text{i.i.d.} Bernoulli(\theta).$$
+
+Ker bomo ubrali bayesovski pristop, moramo izbrati še apriorno porazdelitev. Pri tem moramo ločiti izbiro funkcijske oblike (porazdelitve) in konkretno izbiro parametrov te porazdelitve. Slednje je odvisno od konkretne analize, pri prvem pa si želimo takšno porazdelitev, da lahko z izbiro ustreznih parametrov fleksibilno izražamo svoje apriorno verjetnostno mnenje o parametrih modela.
+
+V tem primeru bomo izbrali porazdelitev Beta:
+
+$$\theta \sim Beta(a_0, b_0).$$
+
+Zakaj?
+
+* Porazdelitev Beta je naravna izbira za izražanje mnenja o spremenljivki, katere zaloga vrednosti je na intervalu med 0 in 1.
+* Je zelo fleksibilna (z izbiro $a_0$ in $b_0$ lahko izrazimo raznolika verjetnostna mnenja):
+
+```{r,fig.height = 3, fig.width = 5}
+a0 <- 6000; b0 <- 4000 # theta is around 0.5 (just one possible opinion)
+x  <- seq(0, 1, 0.01)
+xx <- data.frame(x = x, y = dbeta(x, a0, b0))
+
+ggplot(xx, aes(x = x, y = y)) + geom_line() + ylab("Beta density")
+```
+
+* Ima posebno lastnost, da je konjugirana za Bernoulli/binomski model. Kaj to pomeni? Če jo uporabim kot apriorno, bo tudi aposteriorna imela enako funkcijsko obliko. To je računsko ugodno in hkrati odlično za iterativno posodabljanje mnenja!
+
+#### Računski del
+
+Glavni računski problem bayesove statistike je sklepanje iz aposteriorne porazdelitve. V splošnem imamo samo dve možnosti:
+
+* Aposteriorno izpeljemo na roke. To je mučno in pogosto nemogoče, zato se temu izognemo (razen, če nekdo drug naredi namesto nas).
+* Poslužimo se numeričnih tehnik (aproksimacije, vzorčenje, metode MCMC).
+
+Za naš model
+
+$$y_i|\theta \sim_\text{i.i.d.} Bernoulli(\theta).$$
+$$\theta \sim Beta(a_0, b_0).$$
+
+sledi, da je naše aposteriorno mnenje
+
+
+$$\theta | y_1,...,y_n \sim Beta(a_0 + \sum y_i, b_0 + n - \sum y_i).$$
+
+To bi lahko izpeljali sami ali pogledali v tabelo konjugiranih parov.
+
+Kar smo pravkar izpeljali, je potrebno za vsak model narediti samo enkrat. Sedaj, ko smo model zaobvladali računsko, ga lahko uporabljamo pri vseh naših analizah. Čeprav je model navidez izjemno preprost, gre za zelo pogosto uporaben model za oceno pričakovane vrednosti Bernoulli/binomske porazelitve ali primerjavo dveh ali več tovrstnih slučajnih spremenljivk.
+
+Za vajo si pripravimo še "neumen" aproksimacijski pristop, kjer bomo ignorirali normalizacijsko konstanto:
+
+```{r}
+prop_posterior <- function(theta, a0, b0, y) {
+  dbinom(sum(y), length(y), theta) * dbeta(theta, a0, b0)
+}
+```
+
+#### Analiza v konkretnem primeru
+
+Naši konkretni podatki so:
+
+```{r}
+print(y)
+```
+
+Recimo, da je naše apriorno mnenje, da pravzaprav ne vemo, kolikšna je pričakovana uspešnost košarkarja:
+
+```{r,fig.height = 3, fig.width = 5}
+a0 <- 1; b0 <- 1
+x  <- seq(0, 1, 0.01)
+xx <- data.frame(x = x, y = dbeta(x, a0, b0), type = "prior") 
+xx <- rbind(xx, data.frame(x = x, y = dbeta(x, a0 + sum(y), b0 + length(y) - sum(y)), type = "posterior") )
+
+ggplot(xx, aes(x = x, y = y, group = type, colour = type)) + geom_line() + xlab("theta") + ylab("denisty")
+```
+
+Tole je torej naše mnenje o košarkarjevi uspešnosti, ko vidimo podatke. Je tudi izvrstna priložnost, da preverimo, kakšno bi bilo naše mnenje, če bi začeli s kakšnim drugim apriornim mnenjem.
+
+Ena izmed ključnih prednosti bayesove statistike je, da lahko s pomočjo aposteriorne porazdelitve odgovarjamo na verjetnostna vprašanja o parametrih. Npr., kolikšna je verjetnost, da ima ta košarkar uspešnost nad .75? Nič lažjega:
+
+```{r,fig.height = 3, fig.width = 5}
+1 - pbeta(0.75, a0 + sum(y), b0 + length(y) - sum(y))
+```
+
+Pomembno pa je razumeti, da v večini primerov ne bo mogoče izpeljati aposteriorne porazdelitve oz. le-ta ne bo razumljiva (še posebe v večih dimenzijah). Prav tako pomembno pa je, da razumemo, da za odgovor na verjetnostna vprašanja o parametrih (in posledično vseh izpeljankah iz parametrov, kot so npr. napovedi za nove primere) ne potrebujemo aposteriorne porazdelitve v eksplicitni obliki, temveč se lahko zanašamo na to, da jo znamo oceniti v poljubni točki (in dejstvo, da ne potrebujemo normalizacijske konstante, saj se mora sešteti v 1 oz. so pomembna le razmerja)
+
+Vaja, da se prepričamo, da bi dobili enak odgovor, četudi nimamo pojma, kako izpeljati aposteriorno, ampak jo znamo le oceniti:
+```{r,fig.height = 3, fig.width = 5}
+p1 <- integrate(prop_posterior, lower = 0.75, upper = 1.00, a0, b0, y)$value
+p2 <- integrate(prop_posterior, lower = 0.00, upper = 0.75, a0, b0, y)$value
+
+p1 / (p1 + p2) # normalization
+```
+
+Torej, računski problem Bayesove statistke je problem integriranja.
+
+# Vaja: Model za števne podatke Poisson-Gama
+
+```{r}
+dat <- read.csv("./data/football.csv", sep = ",", h = T)
+dat$Goals <- dat$FTHG + dat$FTAG
+ggplot(dat, aes(x = Goals, fill = Div)) + geom_histogram(binwidth = 1) + facet_wrap( ~ Div)
+```
+
+Naloga (naraščajoča težavnost): 
+
+Model Poisson-Gama je smiselna prva izbira, ko modeliramo števne podatke.
+
+$$y_i|\lambda \sim_\text{iid} Poisson(\lambda)$$
+$$\lambda \sim Gamma(a_0, b_0)$$
+Aposteriorna porazdelitev za ta model je:
+
+$$\lambda|y_1,...,y_n \sim Gamma(a_0 + \sum y_i, b_0 + n)$$
+
+a. Z modelom Poisson-Gamma ocenite pričakovano število golov v izbrani ligi. Kolikšna je verjetnost, da je pričakovano število golov večje od 2.5?
+b. Z modelom primerjajte pričakovano število golov dveh lig.
+c. Z modelom za vsako ligo ovrednotite verjetnost, da je v tisti ligi največje pričakovano število golov na tekmo.
