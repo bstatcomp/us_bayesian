@@ -1,0 +1,341 @@
+---
+title: "Statistično sklepanje z vzorčenjem"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  prettydoc::html_pretty:
+    highlight: github
+    theme: architect
+    toc: yes
+   # toc_float: yes
+---
+
+**Cilji učne enote:**
+
+* Razumeti računske probleme Bayesove statistike.
+* Spoznati, kako lahko numerično integriramo z vzorčenjem (MC).
+* Spoznati, kako lahko vzorčimo iz zapletenih in večrazsežnih porazdelitev (MCMC).
+* Razumeti težave, na katere lahko naletimo pri uporabi metod MCMC.
+
+# Bayesova statistika je računsko zelo zahtevna
+
+(Bayesovsko) statistično modeliranje je v grobem sestavljena iz treh korakov:
+
+1. Izberemo primeren model in apriorno porazdelitev.
+2. Izpeljemo aposteriorno porazdelitev ali kako drugače ovrednotimo porazdelitve in verjetnosti, ki nas zanimajo.
+3. Sklepamo iz rezultatov.
+
+Prvi in tretji korak sta izrazito statistične narave, 2. korak pa je računski (matematično ali računalniško ali oboje). Sodobna statistična orodja in probabilistični programski jeziki so namenjeni ravno temu, da se lahko uporabni statistik povsem izogne 2. koraku.
+
+## Računski problem bayesovskega sklepanja je problem integriranja
+
+Bayesovsko sklepanje o porazdelitvi parametrov, ko vidimo podatke, vedno poteka po Bayesovem izreku:
+
+$$ p(\theta|y) = \frac{p(y, \theta)}{p(y)} = \frac{p(y|\theta)p(\theta)}{p(y)} = \frac{p(y|\theta)p(\theta)}{\int p(y|\theta)p(\theta) d\theta}$$
+Aposteriorna porazdelitev 
+
+$$p(\theta|y)$$
+
+nosi vse informacije, ki nas zanimajo, vendar nas običajno ne zanima v celoti, ampak le določene lastnosti. Npr. pričakovana vrednost parametra
+
+$$E[\theta|y] =  \int p(\theta|y)d\theta,$$
+aposteriorna verjetnost, da prava vrednost parametra leži na nekemu intervalu
+$$P(a < \theta < b |y) = \int_{a}^b p(\theta|y)d\theta = E[I_{a < \theta < b}|y] $$
+
+ali pa napoved za nek nov primer (t. i. napovedna porazdelitev; pri Bayesovi statistiki imamo vedno verjetnostno mnenje o parametrih, zato je tudi naše mnenje o tem, kakšno porazdelitev ima nov primer, mešanica preko našega mnenja o tem, kje je vrednost parametra)
+
+$$p(y_{new}|y) = \int p(y_{new}|\theta)p(\theta|y)d\theta.$$
+
+Torej, za bayesovsko sklepanje moramo tipično izračunati nek integral preko aposteriorne gostote, ki pa že sama po sebi zahteva izračun integrala, če jo želimo oceniti do konstante natančno. Težava nastane, ko ugotovimo, da je integral normalizacijske konstante p(y) nemogoče izračunati analitično že za nekoliko bolj zapletene modele. Pa tudi za preproste modele, če apriorne porazdelitve ne izberemo zelo skrbno, bomo dobili neko nestandardno aposteriorno gostoto.
+
+
+## Konkreten primer: model Bernoulli-Beta
+
+Spomnimo se podatkov uspešnosti prostih metov košarkarja (1 = zadel, 0 = zgrešil):
+
+```{r}
+y <- c(0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1)
+print(y)
+cat(sprintf("The player made %d out of %d shots.\n", sum(y), length(y)))
+```
+
+Na prvih predavanjih smo se odločili, da bomo take binarne podatke poskušali modelirati z modelom
+
+$$Y_i = y_i|\theta \sim_\text{i.i.d.} Bernoulli(\theta) $$
+
+in apriorno porazdelitvijo 
+
+$$\theta \sim Beta(a_0, b_0).$$
+
+Porazdelitev beta nam sicer omogoča precej fleksibilno izražanje verjetnostnega mnenja, kaj si mislimo o $\theta$, vendar je bila ta izbira motivirana predvsem s tem, da gre za konjugirano apriorno. Pri tej izbiri vemo, da je aposteriorna porazdelitev 
+
+$$\theta | y_1,...,y_n \sim Beta(a_0 + \sum y_i, b_0 + n - \sum y_i).$$
+
+### Ni težko, če gre za standardno porazdelitev
+
+Če gre za standardno porazdelitev, potem do njene gostote enostavno dostopamo preko kakšne vgrajene funkcije:
+
+```{r,fig.height = 3, fig.width = 5}
+library(ggplot2)
+a0 <- 1; b0 <- 1
+x  <- seq(0, 1, 0.01)
+xx <- data.frame(x = x, y = dbeta(x, a0, b0), type = "prior") 
+xx <- rbind(xx, data.frame(x = x, y = dbeta(x, a0 + sum(y), b0 + length(y) - sum(y)), type = "posterior") )
+
+ggplot(xx, aes(x = x, y = y, group = type, colour = type)) + geom_line() + xlab("theta") + ylab("denisty")
+```
+
+Prav tako lahko enostavno integriramo z vgrajenimi funkcijami ali celo neposredno preko kumulativne porazdelitve
+
+```{r}
+print("P(theta > 0.75 | y) = ")
+1 - pbeta(0.75, a0 + sum(y), b0 + length(y) - sum(y))
+```
+
+### "Pretvarjajmo" se, da ne znamo integrirati 
+
+Če smo dobri statistiki, a slabi matematiki (in brez dostopa do informacije o konjugiranih parih), se bo naša statistična analiza ustavila na tem mestu:
+
+$$ p(\theta|y) = \frac{p(y|\theta)p(\theta)}{p(y)} = \frac{p(y|\theta)p(\theta)}{\int p(y|\theta)p(\theta) d\theta} = \frac{\left(\prod_{i=1}^n \theta^{y_i}(1-\theta)^{1 - y_i}\right) \frac{1}{B(a_0, b_0)}\theta^{a_0-1}(1-\theta)^{b_0 - 1}}{\int \left(\prod_{i=1}^n \theta^{y_i}(1-\theta)^{1 - y_i}\right) \frac{1}{B(a_0, b_0)}\theta^{a_0-1}(1-\theta)^{b_0 - 1} d\theta} $$
+Ustavilo bi se, ker ne znamo niti ovrednotiti aposteriorne v neki dani theta, kaj šele, da bi znali izračunati integral te funkcije na območju [0.75, 1.00].
+
+Da pridemo do praktično enakovrednega rezultata, kot prej, a brez pretiranega matematičnega razmišljanja in izpeljav, nam pomagata dve spozanji:
+
+1. Gostoto/porazdelitev popolnoma razumemo, četudi jo poznamo samo do neke neznane multiplikativne konstante natančno.
+2. Če znamo vzorčiti iz porazdelitve, znamo sklepati o (skoraj) vseh njenih lastnostih.
+
+# Pri gostotah/porazdelitvah je vsa informacija v obliki
+
+Bistvo porazdelitve/gostote je njena oblika - razmerja med posameznimi vrednostmi (katere vrednosti so kolikokrat bolj verjetne). Množenje s konstanto oblike oz. teh razmerij ne pokvari, originalne vrednosti pa lahko vedno rekonstruiramo tako, da se nam sešteje/integrira v 1 preko vseh možnih vrednosti.
+
+Zaradi tega dejstva lahko ignoriramo imenovalec v Bayesovem izreku in delamo samo s števcem. Tako se izognemo prvemu problemu integriranja.
+
+```{r,fig.height = 3, fig.width = 5}
+prop_posterior <- function(theta, a0, b0, y) {
+  dbinom(sum(y), length(y), theta) * dbeta(theta, a0, b0)
+}
+
+xx <- data.frame(x = x, y = prop_posterior(x, a0, b0, y), type = "numerator only") 
+xx <- rbind(xx, data.frame(x = x, y = dbeta(x, a0 + sum(y), b0 + length(y) - sum(y)), type = "posterior") )
+
+ggplot(xx, aes(x = x, y = y, group = type, colour = type)) + geom_line() + xlab("theta") + ylab("denisty")
+
+
+p1 <- integrate(prop_posterior, lower = 0.75, upper = 1.00, a0, b0, y)$value
+p2 <- integrate(prop_posterior, lower = 0.00, upper = 0.75, a0, b0, y)$value
+
+p1 / (p1 + p2) # normalization
+```
+
+To je vzpodbudno! Če želim sklepati iz aposteriorne porazdelitve, jo moram znati le sprogramirati (pa še to brez imenovalca) in uporabiti neko metodo za integriranje!
+
+# Metode Monte Carlo - integriranje za telebane
+
+Integral bomo sedaj (naivno?) aproksimirali tako, da bomo vzorčili iz aposteriorne porazdelitve in šteli, kolikokrat pade več kot 0.75:
+
+```{r}
+set.seed(1) # always set the seed in random experiments (makes it easier to debug/reproduce)
+m  <- 10000
+xi <- rbeta(m, a0 + sum(y), b0 + length(y) - sum(y))
+
+print("P(theta > 0.75 | y) = ")
+print(mean(xi > 0.75))
+
+1 - pbeta(0.75, a0 + sum(y), b0 + length(y) - sum(y)) # "true" value
+```
+
+## A to dejansko deluje?? In zakaj?
+
+Vrednost integrala neke gostote lahko vedno zapišemo kot integral indikatorske spremenljivke, da vrednost spremeljivke pade na želeni interval
+
+$$P(a < \theta < b |y) = \int_{a}^b p(\theta|y)d\theta = \int I_{a < \theta < b}p(\theta|y)d\theta = E[I_{a < \theta < b}|y] $$
+
+oz., z drugimi besedami, pričakovano vrednost ustrezno izbrane indikatorske spremenljivke.
+
+Zakon velikih števil pravi, da bo povprečje vzorcev X(i) iz neke porazdelitve p(x) šlo proti njeni pričakovani vrednosti (če le-ta obstaja), ko gre število vzorcev proti neskončno. Torej:
+
+$$\lim_{m \rightarrow \infty} \frac{1}{m} \sum_{i = 1}^m X^{(i)} =  E[X|y]  =  \int_{a}^b p(x)d\theta.$$
+Po domače: pričakovano vrednost (integral) lahko aproksimiramo z vzorci.
+
+## Kolikšna je napaka aproksimacije?
+
+Če ima porazdelitev tudi končno varianco, potem drži centralni limitni izrek, ki pravi, da 
+
+
+$$\frac{1}{m} \sum_{i = 1}^m X^{(i)} \sim  N(E[X], Var[X] / \sqrt{m}), \text{ ko } m \rightarrow \infty.$$
+Napaka bo torej približno normalno porazdeljena okoli prave vrednosti in bo padala s korenom števila vzorcev.
+
+Kadarkoli delamo z aproksimacijami, moramo navesti tudi neko mero napake, da ima bralec občutek, koliko variabilnosti je v rezultatu zgolj zaradi vzorčenja. Tipično uporabljamo standardno napako - standardni odklon ocene povprečja.
+
+```{r}
+print("P(theta > 0.75 | y) = ")
+cat(sprintf("= %.7f +/- %.7f\n", mean(xi > 0.75), sd(xi > 0.75) / sqrt(m)))
+1 - pbeta(0.75, a0 + sum(y), b0 + length(y) - sum(y)) # "true" value
+```
+
+V lahko uporabimo tudi kakšen paket za izračun standardnih napak pri aproksimaciji z vzorčenjem (metode Monte Carlo). V primeru, ko imamo neodvisne vzorce, nam ne koristi, saj bodo rezultati podobni, ko pa bomo imeli avtokorelirane vzorce, pa nam precej olajša delo, saj moramo upoštevati še kovarianco:
+```{r}
+library(mcmcse)
+mcse(xi > 0.75)
+```
+
+## Zakaj je integriranje z MC ključno v Bayesovi statistiki?
+
+Padanje napake aproksimacije s korenom števila vzorcev je relativno slabo. Že z najpreprostejšimi metodami numeričnega integriranja lahko dosežemo padanje napake s kvadratom št. evalviranih točk. V čem je torej prednost integriranja z vzorčenjem?
+
+Prednost je v tem, da je napaka MC neodvisna od razsežnosti prostora, po katerem integriramo! Padala bo s korenom števila vzorcev, če imamo funkcijo ene spremenljivke, ali pa če imamo funkcijo 10000 spremenljivk. Po drugi strani pa klasične metode, ki temeljijo na kvadraturi, postanejo neobvladvljive že pri nekaj dimenzijah. Metode MC so de-facto standard za večdimenzionalno integriranje v Bayesovi statistiki, računalniški grafiki, računski geometriji, simulacijah v fiziki, kemiji, ipd.
+
+# Ko postane pomembno le to, da znamo vzorčiti
+
+Zaradi prej omenjenih prednosti MC, ko gre za večrazsežne probleme, je za Bayesovo statistiko izjemno pomembno, da znamo vzorčiti iz aposteriorne porazdelitve. Pri tem pa velja omeniti, da se pri določenih problemih zadovoljimo le s približkom aposteriorne porazdelitve (npr. variacijski Bayes, Laplace-ova aproksimacija) ali le s točkovno napovedjo - maksimumom aposteriorne porazdelitve (MAP - Maximum A-Posteriori). V teh primerih problem integriranja oz. celotne porazdelitve prevedemo na optimizacijski problem, ki je računsko manj zahteven. Tak pristop je še posebej pogost v sodobnem strojnem učenju, kjer imamo opravka z velikimi količinami podatkov in modeli, ki imajo na tistoče parametrov.
+
+## Rejection sampling
+
+**OK, ampak pri prejšnjem primeru smo "goljufali" - rekli smo, da ne znamo izpeljati aposteriorne, nato pa smo vzorčili iz nje...**
+
+V eni dimenziji lahko vedno vzorčimo z relativno preprostim postopkom - vzorčenjem z zavračanjem (ali sprejemom in zavrnitvijo?). Ideja je relativno preprosta: ploščino, v skladi s katero bi radi vzorčili, a ne znamo, omejimo z obliko - ovojnico, iz katere znamo vzorčiti. Nato zavračamo vzorce, ki padejo izven želene ploščine, ter sprejmemo vzorce, ki padejo znotraj. Vse, kar moramo znati (poleg vzorčenja iz izbrane ovojnice), je za dano točko izračunati, ali pade v območje želene porazdelitve:
+
+```{r,fig.height = 3, fig.width = 5}
+set.seed(1) # always set the seed in random experiments (makes it easier to debug/reproduce)
+m  <- 10000
+
+envelope <- function(x) {
+  0.5
+}
+
+xi <- rep(NA, m)
+
+for (i in 1:10000) {
+  while (TRUE) {
+    xx <- runif(1)
+    xy <- runif(1, 0, envelope(xx))
+    if (xy < prop_posterior(xx, a0, b0, y)) {
+      xi[i] <- xx
+      break
+    }
+  }
+}
+
+hist(xi, breaks = 50)
+
+print("P(theta > 0.75 | y) = ")
+cat(sprintf("= %.7f +/- %.7f\n", mean(xi > 0.75), sd(xi > 0.75) / sqrt(m)))
+
+```
+
+Torej, naš računski problem nam je uspelo rešiti, čeprav je vse, kar znamo, ovrednotiti aposteriorno v poljubni točki.
+
+Opomba: Morda ste že opazili, da smo vzorčili na podlagi števca (brez normalizacijske konstante). Kot smo omenili pod (1), množenje s konstanto ne poruši razmerij. Če vzorčimo v skladu s pravimi razmerji, vzorčimo iz prave porazdelitve, četudi jo ne znamo oceniti do konstante nanančno.
+
+## MCMC: globalno razumevanje iz lokalno pravilnega obnašanja
+
+Če povzamemo dosedanje ugotovitve: splošno uporaben pristop k Bayesovi statistiki mora biti sposoben računsko obvladati večrazsežne porazdelitve, ki jih znamo le ovrednotiti do konstante nanančno v poljubni točki. Iz tega sledi, da se moramo omejiti na integriranje z vzorčenjem. Kar pa nam še manjka, je zadosti splošen in uporaben pristop k vzorčenju iz večrazsežnih porazdelitev. Rejection sampling to ni - njegova učinkovitost pada eksponentno s številom dimenzij (če uporabimo naivno ovojnico), določanje bolj učinkovite ovojnice pa zahteva globalno razumevanje funkcije (v našem primeru gostote). 
+
+Generiranje neodvisnih vzorcev iz neke porazdelitve zahteva globalno razumevanje te porazdelitve - poznavanje razmerij med verjetnostmi/gostotami vseh možnih vrednosti, ki jih spremenljivka lahko zavzame. Samo z ovrednotenjem funkcije v določenih točkah in brez dodatnih predpostav o funkciji pa je globalno razumevanje funkcije tudi problem, katerega zahtevnost narašča eksponentno s številom dimenzij. V splošnem torej na tak način ne moremo razviti algoritma za generiranje neodvisnih vzorcev iz želene porazdelitve.
+
+### Algoritem Metropolis-Hastings
+
+![](./m-h.png)
+
+Algoritem Metropolis-Hastings je implementacija osnovne ideje, da z lokalnim zagotavljanjem neke lastnosti dosežemo, da vzorci kot celota izgledajo, kot da so bili izvlečeni iz želene porazdelitve. Lastnost, ki jo zagotavljamo za vsak par možnih vrednosti x, y, je, da mora biti verjetnost prehoda iz x v y (in obratno) enaka razmerju med njunima verjetnostima. Predlagan prehod iz manj verjetne vrednosti v bolj verjetno izvedemo vedno, prehod v obratno smer pa le v deležu primerov, ki zagotavlja lastnost. Zagotavljanje te lastnosti, ki ji pravimo tudi obrnljivost (reversibility, detailed balance) je zadosten pogoj, da bo želena porazdelitev tudi limitna porazdelitev celotnega postopka.
+
+Algoritem Metropolis-Hastings se sicer v praksi uporablja redko (in vedno redkeje), ker je pri večrazsežnih problemih v splošnem težko izbrati primerno porazdelitev kandidatov, ki zagotavlja nizko avtokorelacijo (glejte podpoglavja, ki sledijo). Pri enorazsežnih problemih pa skoraj vedno obstajajo bolj primerni vzorčevalniki.
+
+### M-H na našem konkretnem primeru
+
+Za naš konkreten primer smo za porazdelitev kandidatov izbrali kar uniformno porazdelitev okoli trenutnega stanja, pri čemer skoke izven območja [0,1] zavrnemo. Ni težko preveriti, da ta porazdelitev generira sprehod (markovsko verigo), ki je aperiodičen (zaradi naključnega elementa) in lahko v končnem številu korakov obišče vsa števila na [0,1].
+
+Za začetno vrednost izberemo 0.5.
+
+```{r,fig.height = 3, fig.width = 5}
+set.seed(2)
+m <- 10000
+xi <- c(0.5)
+for (i in 2:(m+1)) {
+  xc <- xi[i-1] + runif(1, -0.3, 0.3)   # candidate for next x is uniformly distributed around current x
+  if (xc < 0 | xc > 1) xc <- xi[i-1]    # we don't move outside of [0, 1] (such candidates are rejected)
+  pp <- prop_posterior(xc, a0, b0, y) / prop_posterior(xi[i-1], a0, b0, y) # we always move into more probable x ....
+  if (runif(1, 0, 1) > min(1, pp)) xc <- xi[i-1]                           # ... but less likely to less probable x
+  xi <- c(xi, xc)
+  
+}
+
+#plot(xi)
+hist(xi, breaks = 50)
+
+```
+
+
+### Napaka MCMC, avtokorelacija, efektivno število vzorcev
+
+Vzorci, ki jih dobimo z metodo MCMC so običajno pozitivno avtokorelirani. Če je avtokorelacija visoka, lahko razberemo že iz poteka vrednosti spremenljivke skozi čas (t. i. traceplot):
+
+
+```{r,fig.height = 4, fig.width = 10}
+# traceplot
+plot(xi[1:100], type = "b")
+```
+
+```{r,fig.height = 4, fig.width = 4}
+# autocorrelation
+tmp <- as.numeric(xi > 0.75)
+acf(tmp)
+```
+
+
+Če te avtokorelacije ne bomo upoštevali, bomo podcenili napako vzorčenja:
+
+```{r}
+# naive calculation of MCMC standard error
+print("P(theta > 0.75 | y) = ")
+cat(sprintf("= %.7f +/- %.7f\n", mean(tmp), sd(tmp) / sqrt(m)))
+
+# mcse takes into account autocorrelation, for a more accurate estimate of MCMC standard error
+print(mcse(tmp))
+```
+
+V praksi smo veseli, če je avtokorelacija blizu 0 - da je naše vzorčenje približno enako dobro, kot če bi vzorčili neodvisno. Z drugimi besedami, da naših m vzorcev dejansko nosi enako informacije, kot bi jih nosilo m neodvisnih vzorcev. S pozitivno korelacijo odvisni vzorci nosijo manj informacije.
+
+Pogosto uporabljamo enoštevilčni povzetek količine avtokorelacije - efektivno število vzorcev (ESS; Effective Sample Size). Številka pomeni točno to, kar pravi ime - koliko neodvisnih v
+
+```{r}
+# ESS
+se_naive <- sd(tmp) / sqrt(m)
+se_autoc <- as.numeric(mcse(tmp)[2])
+print(m * se_naive^2 / se_autoc^2)
+# or, using the mcmcse built-in function
+print(ess(tmp))
+```
+Torej, zaradi pozitivne avtokorelacije štirje naši vzorci nosijo približno toliko informacije, kot bi ga prinesel en neodvisen vzorec.
+
+## Povzetek Markov Chain Monte Carlo
+
+Prednost družine pristopov MCMC je, da lahko relativno učinkovito vzorčimo iz večrazsežnih porazdelitev, ki jih znamo le ovrednostiti v poljubni točki. Torej, dovolj je, da definiramo, kako se izračunata verjetje in apriorna. Vsa splošna orodja za Bayesovo statistiko temeljijo na algoritmih iz družine MCMC. Glavna slabost pa je, da so vzorci med seboj odvisni. To pripelje do večje napake vzorčenja oz. manjše učinkovitosti vzorcev. Če je avtokorelacija zelo visoka, je lahko vzorčenje popolnoma neuporabno. 
+
+Pri uporabi metod MCMC moramo vedno diagnosticirati, če je prišlo do kakšnih težav. Tipični pristopi so izris parametra, ki nas zanima (t. i. traceplot), izračun ESS in standardne napake MCMC, nekateri pristopi pa ponujajo tudi bolj specializirane diagnostike. Zavedati pa se moramo, da vsi ti pristopi pomagajo odkriti očitne probleme, ne bodo pa nam potrdili, da vzorečenje 'pravilno'. Potrjevanje konvergence markovske verige je zelo težek problem že v konkretnih primerih, kaj šele v splošnem.
+
+# Vaja: Model za števne podatke, tokrat z malo drugačno apriorno
+
+Kot pri prvi domači nalogi, bomo predpostavili, da so podatki porazdeljeni po Poisson-u:
+
+$$y_i|\lambda \sim_\text{iid} Poisson(\lambda), $$
+izbrali pa bomo drugo apriorno porazdelitev - pri 0 odrezano normalno porazdelitev - s katero lažje izrazimo svoje mnenje o vrednosti parametra lambda:
+
+$$\lambda \sim N(\mu_0, \sigma^2_0)[0,\infty].$$
+Z drugimi besedami, apriorna gostota je pri nenegativnih vrednostih proporcionalna normalni, pri negativnih pa enaka 0. Npr.:
+
+```{r,fig.height = 3, fig.width = 5}
+dtnorm <- function(x, mu, s) {
+  ifelse(x < 0, 0, dnorm(x, mu, s))
+}
+
+x  <- seq(-2, 10, 0.01)
+xx <- data.frame(x = x, y = dtnorm(x, 1, 2)) 
+
+ggplot(xx, aes(x = x, y = y)) + geom_line() + ylab("denisty")
+
+```
+
+Z modelom Poisson-Gamma ocenite pričakovano število golov v izbrani ligi. Kolikšna je verjetnost, da je pričakovano število golov večje od 2.5? Pri tem:
+a. Določite svoje apriorno mnenje (mu0, s20) in utemeljite, zakaj takšno mnenje (ni pravilnih/napačnih mnenj, so samo dobro in slabo utemeljena).
+b. Za izbrano apriorno mnenje in podatke odgovorite na vprašanji, pri čemer za računski del implementirajte "rejection sampling" (izberite primerno ovojnico) in integrirajte z uporabo metode Monte Carlo. Ne pozabite na napake aproksimacije z vzorčenjem.
+c. Postopek pri (b) ponovite, a tokrat za računski del implementirajte vzorčevalnik Metropolis-Hastings (izberite primeren osnovni sprehod). Ne pozabite diagnosticirati potencialnih problemov in na napake aproksimacije z vzorčenjem z odvisnimi vzorci. Primerjajte hitrost in učinkovitost z vzorčevalnikom iz (b). Pozor, najboljši vzorčevalnik je tisti, ki ima največ efektivnih vzorcev na časovno enoto.
