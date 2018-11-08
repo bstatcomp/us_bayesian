@@ -37,7 +37,8 @@ $$p(\theta|y)$$
 
 nosi vse informacije, ki nas zanimajo, vendar nas običajno ne zanima v celoti, ampak le določene lastnosti. Npr. pričakovana vrednost parametra
 
-$$E[\theta|y] =  \int p(\theta|y)d\theta,$$
+$$E[\theta|y] =  \int \theta p(\theta|y)d\theta,$$
+
 aposteriorna verjetnost, da prava vrednost parametra leži na nekemu intervalu
 $$P(a < \theta < b |y) = \int_{a}^b p(\theta|y)d\theta = E[I_{a < \theta < b}|y] $$
 
@@ -135,6 +136,8 @@ Integral bomo sedaj (naivno?) aproksimirali tako, da bomo vzorčili iz aposterio
 ```{r}
 set.seed(1) # always set the seed in random experiments (makes it easier to debug/reproduce)
 m  <- 10000
+a0 <- 1
+b0 <- 1
 xi <- rbeta(m, a0 + sum(y), b0 + length(y) - sum(y))
 
 print("P(theta > 0.75 | y) = ")
@@ -161,7 +164,7 @@ Po domače: pričakovano vrednost (integral) lahko aproksimiramo z vzorci.
 Če ima porazdelitev tudi končno varianco, potem drži centralni limitni izrek, ki pravi, da 
 
 
-$$\frac{1}{m} \sum_{i = 1}^m X^{(i)} \sim  N(E[X], Var[X] / \sqrt{m}), \text{ ko } m \rightarrow \infty.$$
+$$\frac{1}{m} \sum_{i = 1}^m X^{(i)} \sim  N(E[X], Var[X] / m), \text{ ko } m \rightarrow \infty.$$
 Napaka bo torej približno normalno porazdeljena okoli prave vrednosti in bo padala s korenom števila vzorcev.
 
 Kadarkoli delamo z aproksimacijami, moramo navesti tudi neko mero napake, da ima bralec občutek, koliko variabilnosti je v rezultatu zgolj zaradi vzorčenja. Tipično uporabljamo standardno napako - standardni odklon ocene povprečja.
@@ -204,7 +207,7 @@ envelope <- function(x) {
 
 xi <- rep(NA, m)
 
-for (i in 1:10000) {
+for (i in 1:m) {
   while (TRUE) {
     xx <- runif(1)
     xy <- runif(1, 0, envelope(xx))
@@ -251,7 +254,7 @@ set.seed(2)
 m <- 10000
 xi <- c(0.5)
 for (i in 2:(m+1)) {
-  xc <- xi[i-1] + runif(1, -0.3, 0.3)   # candidate for next x is uniformly distributed around current x
+  xc <- xi[i-1] + runif(1, -0.01, 0.01)   # candidate for next x is uniformly distributed around current x
   if (xc < 0 | xc > 1) xc <- xi[i-1]    # we don't move outside of [0, 1] (such candidates are rejected)
   pp <- prop_posterior(xc, a0, b0, y) / prop_posterior(xi[i-1], a0, b0, y) # we always move into more probable x ....
   if (runif(1, 0, 1) > min(1, pp)) xc <- xi[i-1]                           # ... but less likely to less probable x
