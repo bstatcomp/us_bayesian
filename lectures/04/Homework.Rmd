@@ -1,0 +1,262 @@
+---
+title: "Domača naloga"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  prettydoc::html_pretty:
+    highlight: github
+    theme: architect
+    toc: yes
+   # toc_float: yes
+---
+
+
+
+# Vaja: Model za števne podatke Poisson-Gama
+
+```{r}
+library(ggplot2)
+dat <- read.csv("./data/football.csv", sep = ",", h = T)
+dat$Goals <- dat$FTHG + dat$FTAG
+ggplot(dat, aes(x = Goals, fill = Div)) + geom_histogram(binwidth = 1) + facet_wrap( ~ Div)
+```
+
+Naloga (naraščajoča težavnost): 
+
+Model Poisson-Gama je smiselna prva izbira, ko modeliramo števne podatke.
+
+$$y_i|\lambda \sim_\text{iid} Poisson(\lambda)$$
+$$\lambda \sim Gamma(a_0, b_0)$$
+Aposteriorna porazdelitev za ta model je:
+
+$$\lambda|y_1,...,y_n \sim Gamma(a_0 + \sum y_i, b_0 + n)$$
+
+a. Z modelom Poisson-Gamma ocenite pričakovano število golov v izbrani ligi. Kolikšna je verjetnost, da je pričakovano število golov večje od 2.5?
+b. Z modelom primerjajte pričakovano število golov dveh lig.
+c. Z modelom za vsako ligo ovrednotite verjetnost, da je v tisti ligi največje pričakovano število golov na tekmo.
+
+
+# Vaja: Model za števne podatke, tokrat z malo drugačno apriorno
+
+Kot pri prvi domači nalogi, bomo predpostavili, da so podatki porazdeljeni po Poisson-u:
+
+$$y_i|\lambda \sim_\text{iid} Poisson(\lambda), $$
+izbrali pa bomo drugo apriorno porazdelitev - pri 0 odrezano normalno porazdelitev - s katero lažje izrazimo svoje mnenje o vrednosti parametra lambda:
+
+$$\lambda \sim N(\mu_0, \sigma^2_0)[0,\infty].$$
+Z drugimi besedami, apriorna gostota je pri nenegativnih vrednostih proporcionalna normalni, pri negativnih pa enaka 0. Npr.:
+
+```{r,fig.height = 3, fig.width = 5}
+dtnorm <- function(x, mu, s) {
+  ifelse(x < 0, 0, dnorm(x, mu, s))
+}
+
+x  <- seq(-2, 10, 0.01)
+xx <- data.frame(x = x, y = dtnorm(x, 1, 2)) 
+
+ggplot(xx, aes(x = x, y = y)) + geom_line() + ylab("denisty")
+
+```
+
+Z modelom Poisson-Gamma ocenite pričakovano število golov v izbrani ligi. Kolikšna je verjetnost, da je pričakovano število golov večje od 2.5? Pri tem:
+
+a. Določite svoje apriorno mnenje (mu0, s20) in utemeljite, zakaj takšno mnenje (ni pravilnih/napačnih mnenj, so samo dobro in slabo utemeljena).
+b. Za izbrano apriorno mnenje in podatke odgovorite na vprašanji, pri čemer za računski del implementirajte "rejection sampling" (izberite primerno ovojnico) in integrirajte z uporabo metode Monte Carlo. Ne pozabite na napake aproksimacije z vzorčenjem.
+c. Postopek pri (b) ponovite, a tokrat za računski del implementirajte vzorčevalnik Metropolis-Hastings (izberite primeren osnovni sprehod). Ne pozabite diagnosticirati potencialnih problemov in na napake aproksimacije z vzorčenjem z odvisnimi vzorci. Primerjajte hitrost in učinkovitost z vzorčevalnikom iz (b). Pozor, najboljši vzorčevalnik je tisti, ki ima največ efektivnih vzorcev na časovno enoto.
+
+
+
+
+# Glavni elementi rešitve
+
+Izbira apriorne porazdelitve:
+```{r,fig.height = 3, fig.width = 5}
+x  <- seq(0, 10, 0.01)
+ggplot(data.frame(x = x, y = dgamma(x, 2, 1)) , aes(x = x, y = y)) + geom_line() + ylab("denisty")
+
+```
+
+## Ocena upanja in verjetnosti, da je večje od 2.5 (za vse lige)
+```{r}
+set.seed(0)
+dat2 <- dat[sample(1:nrow(dat), nrow(dat) / 10, rep = F),] # 10% of the data only, so we have more uncertainty (only so the results look nicer)
+tmp <- data.frame(y_sum = tapply(dat2$FTHG + dat2$FTAG, dat2$Div, sum), 
+                  n = tapply(dat2$FTHG + dat2$FTAG, dat2$Div, length))
+
+a0 <- 2
+b0 <- 1
+
+post_samples <- function(y_sum, n, a0, b0, m = 10000) {
+  rgamma(m, y_sum + a0, n + b0)
+}
+
+se <- function(x) {
+  sd(x) / sqrt(length(x))
+}
+
+res <- NULL
+for (i in 1:nrow(tmp)) {
+  z <- tmp[i,]
+  x <- post_samples(z$y_sum, z$n, a0, b0)
+  q <- x > 2.5
+  res <- rbind(res, data.frame(Div = row.names(tmp)[i], 
+                               mean = mean(x), # sampling-based estimate
+                               se_mean = se(x), 
+                               avg = z$y_sum / z$n, # data average
+                               wiki = (z$y_sum + a0) / (z$n + b0), # estimate based on the property of the Gamma distribution
+                               int = mean(q), # sampling-based
+                               se_int = se(q),
+                               int_cdf = 1 - pgamma(2.5,  (z$y_sum + a0) , (z$n + b0)))) # property of Gamma distribution
+}
+```
+
+## Primerjava dveh (ali več), z vzorčenjem
+
+
+```{r}
+cmp <- tmp[9:12,]
+
+# take samples
+smp <- NULL
+for (i in 1:nrow(cmp)) {
+  z <- cmp[i,]
+  x <- post_samples(z$y_sum, z$n, a0, b0)
+  smp <- cbind(smp, x)
+}
+
+rnk <- t(apply(-smp, 1, rank))
+rnk <- ifelse(rnk == 1, 1, 0)
+
+# estimate prob
+res <- NULL
+for (i in 1:nrow(cmp)) {
+  x <- rnk[,i]
+  res <- rbind(res, data.frame(Div = row.names(cmp)[i], 
+                               mean = mean(x), 
+                               se_mean = se(x)))
+}
+
+print(res)
+
+```
+## Primerjava dveh (ali več), z integrate()
+
+```{r}
+cmp <- tmp[9:12,]
+
+# compute parameters of posterior distribution (y_sum + a0, n + b0)
+for (i in 1:nrow(cmp)) {
+  cmp[i,] <- cmp[i,] + c(a0, b0)
+}
+
+int_first <- function(cmp, idx) {
+  tf <- function(x, idx, cmp) {
+    prod <- dgamma(x, cmp[idx,]$y_sum, cmp[idx,]$n)
+    for (i in 1:nrow(cmp)) {
+      if (i != idx) prod <- prod * pgamma(x, cmp[i,]$y_sum, cmp[i,]$n)
+    }
+    prod
+  }
+  
+  integrate(tf, lower = 0, upper = Inf, idx, cmp)
+}
+# estimate prob
+res <- NULL
+for (i in 1:nrow(cmp)) {
+  z <- int_first(cmp, i)
+  print(z)
+  res <- rbind(res, data.frame(Div = row.names(cmp)[i], 
+                               prob_1st = z$value))
+}
+
+print(res)
+
+```
+
+
+## Vsa informacija je v obliki aposteriorne
+```{r,fig.height = 3, fig.width = 5}
+tmp <- dat2[dat2$Div == "B1",]
+y <- tmp$FTHG + tmp$FTAG
+
+log_prop_posterior <- function(x, y, a0, b0) {
+  sum(dpois(y, x, log = T)) + dgamma(x, a0, b0, log = T)
+}
+
+x  <- seq(0, 10, 0.01)
+xx <- data.frame(x = x, y = dgamma(x, sum(y) + 2, length(y) + 1), type = "posterior")
+xx <- rbind(xx, data.frame(x = x, y = dgamma(x, 2, 1), type = "prior"))
+xx <- rbind(xx, data.frame(x = x, y = 50000000000000 * exp(sapply(x, FUN = log_prop_posterior, y = y, a0 = a0, b0 = b0)), type = "prop_posterior"))
+ggplot(xx , aes(x = x, y = y, colour = type)) + geom_line() + ylab("denisty")
+
+```
+
+## Vzorčenje z zavračanjem
+```{r}
+# rejection sampling
+post_samples_rej <- function(y, a0, b0, lower = 0, upper = 10, m = 1000, log_f = log_prop_posterior) {
+  smp <- c()
+  
+  # find maximum
+  count <- 0
+  max_x <- optim(0.5, lower = lower, upper = upper, log_f, method = "L-BFGS-B", control = list(fnscale = -1), 
+                 y = y, a0 = a0, b0 = b0)$par
+  print(max_x)
+  M <- log_f(max_x, y, a0, b0)
+  print(M)
+  while (length(smp) < m) {
+    x <- runif(1, 0, upper) # sampling from the 
+    u <- runif(1)
+    if (u < exp(log_f(x, y, a0, b0) - M)) smp <- c(smp, x)
+    count <- count + 1
+  }
+  print(100 * m / count)
+  smp
+
+}
+
+set.seed(0)
+tmp <- data.frame(y_sum = tapply(dat$FTHG + dat$FTAG, dat$Div, sum), n = tapply(dat$FTHG + dat$FTAG, dat$Div, length))
+tmp <- tmp[1:5,]
+res <- NULL
+for (i in 1:nrow(tmp)) {
+  z <- tmp[i,]
+  
+  # direct sampling
+  x1 <- post_samples(z$y_sum, z$n, a0, b0)
+  q1 <- x1 > 2.5
+  
+  # rejection sampling
+  y <- dat[dat$Div == row.names(tmp)[i],]$Goals
+  x2 <- post_samples_rej(y, a0, b0)
+
+
+  res <- rbind(res, data.frame(Div = row.names(tmp)[i], 
+                               mean = mean(x1), 
+                               se_mean = se(x1), 
+                               avg = z$y_sum / z$n,
+                               mean_rs = mean(x2),
+                               se_mean_rs= se(x2)))
+}
+
+print(res)
+```
+
+
+# Metropolis-Hastings
+```{r,fig.height = 3, fig.width = 5}
+set.seed(2)
+m <- 10000
+xi <- c(0.5)
+for (i in 2:(m+1)) {
+  xc <- xi[i-1] + runif(1, -0.5, 0.5)   # candidate for next x is uniformly distributed around current x
+  if (xc < 0) xc <- xi[i-1]    # we don't move outside of [0, inf) (such candidates are rejected)
+  pp <- exp(log_prop_posterior(xc, y, a0, b0) - log_prop_posterior(xi[i-1], y, a0, b0)) # we always move into more probable x ....
+  if (runif(1, 0, 1) > min(1, pp)) xc <- xi[i-1]                           # ... but less likely to less probable x
+  xi <- c(xi, xc)
+  
+}
+
+#plot(xi)
+hist(xi, breaks = 50)
+
+```
