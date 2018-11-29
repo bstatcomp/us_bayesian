@@ -1,0 +1,139 @@
+---
+title: "Uvod v Stan"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  prettydoc::html_pretty:
+    highlight: github
+    theme: architect
+    toc: yes
+   # toc_float: yes
+---
+
+**Cilji učne enote:**
+
+* Spoznati programski jezik in orodje Stan
+
+# Bernoulli-Beta
+
+Za primer vzemimo podatke o uspešnosti prostih metov košarkarja (1 = zadel, 0 = zgrešil):
+
+```{r}
+y <- c(0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1)
+print(y)
+cat(sprintf("The player made %d out of %d shots.\n", sum(y), length(y)))
+```
+
+
+Naš statistični model:
+
+$$y_i|\theta \sim_\text{i.i.d.} Bernoulli(\theta).$$
+
+$$\theta \sim Beta(a_0, b_0).$$
+```{r}
+library(rstan)
+library(ggplot2)
+
+#fit <- stan(file = "bernoulli-beta.stan")
+#saveRDS(fit, "bernoulli-beta.rds")
+fit <- readRDS("bernoulli-beta.rds")
+
+stan_data <- list(y = y, n = length(y))
+
+res <- stan(fit = fit, 
+                data = stan_data,
+                iter = 5000,
+                chains = 1)
+
+
+print(res)
+traceplot(res)
+
+# or we can just take the samples and work with them as we are used to
+samples <- extract(res, permuted = FALSE) # beware - the default behavior is to permute the samples!!!
+x <- samples[,,"theta"]
+library(mcmcse)
+mcse(x)
+ess(x)
+mcse(x > 0.75)
+ess(x > 0.75)
+```
+
+
+
+# Poisson-Gamma
+
+
+$$y_i|\lambda \sim_\text{i.i.d.} Poisson(\lambda).$$
+
+$$\lambda \sim Gamma(a_0, b_0).$$
+```{r}
+library(rstan)
+library(ggplot2)
+
+#fit <- stan(file = "poisson-gamma.stan")
+#saveRDS(fit, "poisson-gamma.rds")
+fit <- readRDS("poisson-gamma.rds")
+
+dat <- read.csv("./data/football.csv", sep = ",", h = T)
+dat$Goals <- dat$FTHG + dat$FTAG
+y <- dat$Goals[dat$Div == "E0"]
+
+stan_data <- list(y = y, n = length(y))
+
+res <- stan(fit = fit, 
+                data = stan_data,
+                iter = 500,
+                chains = 1)
+
+
+print(res)
+traceplot(res)
+
+# or we can just take the samples and work with them as we are used to
+samples <- extract(res, permuted = FALSE) # beware - the default behavior is to permute the samples!!!
+x <- samples[,,"lambda"]
+library(mcmcse)
+mcse(x)
+ess(x)
+mcse(x > 2.5)
+ess(x > 2.5)
+```
+
+
+
+# Poisson-TruncatedNormal
+
+
+$$y_i|\lambda \sim_\text{i.i.d.} Poisson(\lambda).$$
+
+$$\lambda \sim Normal(a_0, b_0), \text{ truncated at 0}.$$
+```{r}
+library(rstan)
+library(ggplot2)
+
+#fit <- stan(file = "poisson-tnormal.stan")
+#saveRDS(fit, "poisson-tnormal.rds")
+fit <- readRDS("poisson-tnormal.rds")
+
+dat <- read.csv("./data/football.csv", sep = ",", h = T)
+dat$Goals <- dat$FTHG + dat$FTAG
+y <- dat$Goals[dat$Div == "E0"]
+
+stan_data <- list(y = y, n = length(y), mu0 = 1.0, s0 = 0.001)
+
+res <- stan(fit = fit, 
+                data = stan_data,
+                iter = 500,
+                chains = 1)
+
+
+print(res)
+traceplot(res)
+
+# or we can just take the samples and work with them as we are used to
+samples <- extract(res, permuted = FALSE) # beware - the default behavior is to permute the samples!!!
+x <- samples[,,"lambda"]
+library(mcmcse)
+mcse(x)
+ess(x)
+```
